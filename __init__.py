@@ -1,7 +1,10 @@
+#!/bin/python3.6
 import requests
 import re
 import csv
 import io
+import zipfile
+import codecs
 
 BASE_URL = 'https://api.mapnwea.org'
 HTTP_ERROR = requests.exceptions.HTTPError
@@ -26,7 +29,7 @@ class Client:
             response.raise_for_status()
             return response
         except HTTP_ERROR as e:
-            print(e, '\n' + response.text)
+            print(e, '\n' + e.response.text)
 
     def data_export(self):
         path = 'services/reporting/dex'
@@ -78,10 +81,20 @@ class Client:
         response = self.send_request('GET', path)
 
         if response.ok:
+            errors_list = []
             if response.text == 'OK_NO_ERRORS':
                 print('Server response: ' + str(response.status_code) + ' | ' + response.text)
-                return {}
             else:
-                errors_dictreader = csv.DictReader(io.StringIO(response.text))
-                errors_list = [e for e in map(dict, errors_dictreader)]
-                return errors_list
+                if response.headers['Content-Type'] == 'application/zip':
+                    errors_zipfile = zipfile.ZipFile(io.BytesIO(response.content))
+                    for f in errors_zipfile.filelist:
+                        with errors_zipfile.open(f.filename) as csv_file:
+                            csv_file_decoded = codecs.iterdecode(csv_file, 'utf-8')
+                            reader = csv.DictReader(csv_file_decoded)
+                            errors = [e for e in map(dict, reader)]
+                        errors_list.extend(errors)
+                else:
+                    errors_dictreader = csv.DictReader(io.StringIO(response.text))
+                    errors_list = [e for e in map(dict, errors_dictreader)]
+
+            return errors_list
